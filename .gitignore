@@ -1,0 +1,12 @@
+.vs/
+.vscode/
+*.user
+*.sdf
+*.suo
+
+Debug
+Release
+x64
+
+/build/
+/private/
