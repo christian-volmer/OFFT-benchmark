@@ -4,18 +4,20 @@
 //    (See accompanying file LICENSE_1_0.txt or copy at
 //          https://www.boost.org/LICENSE_1_0.txt)
 
-#define USE_MKL
-#define USE_FFTW
+// #define USE_MKL
+// #define USE_FFTW
 
-#include <iostream>
-#include <cmath>
+#include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <iomanip>
+#include <iostream>
+#include <stdexcept>
 #include <vector>
 #include <windows.h>
-#include <iomanip>
-#include <stdexcept>
 
 #include <offt.h>
+#include <offt/math.h>
 
 #ifdef USE_FFTW
 #include <fftw3.h>
@@ -27,19 +29,20 @@
 
 double constexpr Pi = 3.1415926535897932385;
 
-class FftData
-{
+class FftData {
 	std::size_t const mSize;
 	double *mIn, *mOut;
 	std::size_t mBin;
 	double mPhase;
 
 public:
-	FftData(std::size_t size) : mSize(size),
-								mIn(),
-								mOut(),
-								mBin(size/3),
-								mPhase(1.0)
+
+	FftData(std::size_t size) :
+		mSize(size),
+		mIn(),
+		mOut(),
+		mBin(size / 3),
+		mPhase(1.0)
 	{
 #ifdef USE_FFTW
 		mIn = (double *)fftw_malloc(sizeof(fftw_complex) * size);
@@ -49,8 +52,7 @@ public:
 		mOut = (double *)malloc(sizeof(std::complex<double>) * size);
 #endif
 
-		for (std::size_t i = 0; i < size; ++i)
-		{
+		for (std::size_t i = 0; i < size; ++i) {
 			std::complex<double> p = std::exp(std::complex<double>(0.0, 2 * Pi * i * mBin / size + mPhase));
 
 			mIn[2 * i + 0] = p.real();
@@ -74,13 +76,13 @@ public:
 		return mSize;
 	}
 
-	template <typename T>
+	template<typename T>
 	T const *GetIn() const
 	{
 		return reinterpret_cast<T const *>(mIn);
 	}
 
-	template <typename T>
+	template<typename T>
 	T *GetOut() const
 	{
 		return reinterpret_cast<T *>(mOut);
@@ -102,8 +104,7 @@ public:
 
 		// The deviation from zero at all other bins
 		double zeroError = 0.0;
-		for (std::size_t i = 0; i < mSize; ++i)
-		{
+		for (std::size_t i = 0; i < mSize; ++i) {
 
 			if (i == mBin)
 				continue;
@@ -115,22 +116,25 @@ public:
 
 		if (binError > 1e-8 || zeroError > 1e-8) {
 
-			std::cout << "\n\n -- Error in FFT computation --\n" << std::defaultfloat << std::setprecision(3);
+			std::cout << "\n\n -- Error in FFT computation --\n"
+					  << std::defaultfloat << std::setprecision(3);
 			std::cout << "  binError  = " << binError << ", ";
 			std::cout << "  zeroError = " << zeroError << "\n\n";
 
-			//throw std::runtime_error("Error in FFT computation.");
+			// throw std::runtime_error("Error in FFT computation.");
 		}
 	}
 };
 
-class Runner
-{
+class Runner {
 private:
+
 	FftData &mFftData;
 
 public:
-	Runner(FftData &fftData) : mFftData(fftData){};
+
+	Runner(FftData &fftData) :
+		mFftData(fftData) {};
 
 	FftData &GetFftData() const
 	{
@@ -138,19 +142,21 @@ public:
 	}
 };
 
-class OfftRunner : public Runner
-{
+class OfftRunner : public Runner {
 
 private:
+
 	offt::Fourier<> mFourier;
 	std::complex<double> const *mIn;
 	std::complex<double> *mOut;
 
 public:
-	OfftRunner(FftData &fftData) : Runner(fftData),
-								   mFourier(fftData.GetSize(), offt::FourierParameters::FFTW),
-								   mIn(fftData.GetIn<std::complex<double>>()),
-								   mOut(fftData.GetOut<std::complex<double>>())
+
+	OfftRunner(FftData &fftData) :
+		Runner(fftData),
+		mFourier(fftData.GetSize(), offt::FourierParameters::FFTW),
+		mIn(fftData.GetIn<std::complex<double>>()),
+		mOut(fftData.GetOut<std::complex<double>>())
 	{
 		mFourier.EnsureTemp();
 	}
@@ -163,19 +169,21 @@ public:
 
 #ifdef USE_FFTW
 
-class FftwRunner : public Runner
-{
+class FftwRunner : public Runner {
 
 private:
+
 	fftw_plan mPlan;
 	fftw_complex const *mIn;
 	fftw_complex *mOut;
 
 public:
-	FftwRunner(FftData &fftData, unsigned flags) : Runner(fftData),
-												   mPlan(),
-												   mIn(fftData.GetIn<fftw_complex>()),
-												   mOut(fftData.GetOut<fftw_complex>())
+
+	FftwRunner(FftData &fftData, unsigned flags) :
+		Runner(fftData),
+		mPlan(),
+		mIn(fftData.GetIn<fftw_complex>()),
+		mOut(fftData.GetOut<fftw_complex>())
 	{
 		mPlan = fftw_plan_dft_1d((int)fftData.GetSize(), const_cast<fftw_complex *>(mIn), mOut, FFTW_FORWARD, flags);
 	}
@@ -195,18 +203,20 @@ public:
 
 #ifdef USE_MKL
 
-class MklRunner : public Runner
-{
+class MklRunner : public Runner {
 private:
+
 	DFTI_DESCRIPTOR_HANDLE mDesc;
 	std::complex<double> const *mIn;
 	std::complex<double> *mOut;
 
 public:
-	MklRunner(FftData &fftData, int cores) : Runner(fftData),
-											 mDesc(),
-											 mIn(fftData.GetIn<std::complex<double>>()),
-											 mOut(fftData.GetOut<std::complex<double>>())
+
+	MklRunner(FftData &fftData, int cores) :
+		Runner(fftData),
+		mDesc(),
+		mIn(fftData.GetIn<std::complex<double>>()),
+		mOut(fftData.GetOut<std::complex<double>>())
 	{
 		DftiCreateDescriptor(&mDesc, DFTI_DOUBLE, DFTI_COMPLEX, 1, fftData.GetSize());
 		DftiSetValue(mDesc, DFTI_PLACEMENT, DFTI_NOT_INPLACE);
@@ -230,7 +240,7 @@ public:
 static int const gMinimumCount = 4;
 static double const gMinimumDuration = 1;
 
-template <typename T>
+template<typename T>
 double Timer(T &runner)
 {
 	runner.GetFftData().Clear();
@@ -242,8 +252,7 @@ double Timer(T &runner)
 
 	auto startTime = std::chrono::steady_clock::now();
 
-	do
-	{
+	do {
 
 		runner.Run();
 		duration = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count();
@@ -256,6 +265,30 @@ double Timer(T &runner)
 	return 1e9 * duration / count / (size * std::log(size));
 }
 
+void PrintFactors(std::size_t size)
+{
+	std::vector<std::ptrdiff_t> factors;
+
+	offt::math::FactorInteger(size, [&](std::ptrdiff_t factor) { factors.push_back(factor); });
+	std::sort(factors.begin(), factors.end());
+
+	for (auto f = factors.cbegin(); f != factors.cend();) {
+
+		int multiplicity = 1;
+		ptrdiff_t factor = *f;
+		for (++f; *f == factor && f != factors.cend(); ++f)
+			++multiplicity;
+
+		std::cout << factor;
+
+		if (multiplicity > 1)
+			std::cout << "<sup>" << multiplicity << "</sup>";
+
+		if (f != factors.cend())
+			std::cout << "&thinsp;&middot;&thinsp;";
+	}
+}
+
 void RunList(std::vector<size_t> const &sizes)
 {
 	std::cout << "|    Size     |    OFFT    |";
@@ -265,7 +298,7 @@ void RunList(std::vector<size_t> const &sizes)
 #ifdef USE_MKL
 	std::cout << " MKL 1-core | MKL 2-core |";
 #endif
-	std::cout << "\n";
+	std::cout << " Factors\n";
 
 	std::cout << "|-------------|------------|";
 #ifdef USE_FFTW
@@ -275,14 +308,13 @@ void RunList(std::vector<size_t> const &sizes)
 	std::cout << "------------|------------|";
 #endif
 
-	std::cout << "\n";
+	std::cout << "-----------\n";
 
-	for (auto size : sizes)
-	{
+	for (auto size : sizes) {
 
-	std::cout << std::setprecision(1);
-	std::cout << std::fixed;
-			
+		std::cout << std::setprecision(1);
+		std::cout << std::fixed;
+
 		FftData data(size);
 
 		OfftRunner offtRunner(data);
@@ -333,7 +365,11 @@ void RunList(std::vector<size_t> const &sizes)
 
 #endif
 
-		std::cout << " |\n";
+		std::cout << " | ";
+
+		PrintFactors(size);
+
+		std::cout << " \n";
 	}
 }
 
@@ -342,10 +378,8 @@ int main()
 	SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS);
 	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
 
-	std::cout << "Numbers are nanoseconds per $n \\log n$.\n\n";
-
 	{
-		std::cout << "## Powers of two\n\n";
+		std::cout << "### Powers of two\n\n";
 
 		std::vector<size_t> powersOfTwo;
 		for (std::size_t i = 10; i <= 24; ++i)
@@ -357,7 +391,7 @@ int main()
 	std::cout << "\n";
 
 	{
-		std::cout << "## Powers of ten\n\n";
+		std::cout << "### Powers of ten\n\n";
 
 		std::vector<size_t> powersOfTen;
 		for (std::size_t i = 2; i <= 7; ++i)
@@ -369,16 +403,15 @@ int main()
 	std::cout << "\n";
 
 	{
-		std::cout << "## Non-powers of two\n\n";
+		std::cout << "### Non-powers of two\n\n";
 
 		std::vector<size_t> nonPowersOfTwo;
 		for (std::size_t i = 10; i <= 24; ++i) {
 
-			nonPowersOfTwo.push_back(std::pow(2u, i)-1);
-			nonPowersOfTwo.push_back(std::pow(2u, i)+1);
+			nonPowersOfTwo.push_back(std::pow(2u, i) - 1);
+			nonPowersOfTwo.push_back(std::pow(2u, i) + 1);
 		}
 
 		RunList(nonPowersOfTwo);
 	}
-
 }
