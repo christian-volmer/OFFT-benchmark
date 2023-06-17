@@ -4,8 +4,11 @@
 //    (See accompanying file LICENSE_1_0.txt or copy at
 //          https://www.boost.org/LICENSE_1_0.txt)
 
-// #define USE_MKL
-// #define USE_FFTW
+#define USE_MKL
+#define USE_FFTW
+
+static int const gMinimumCount = 5;
+static double const gMinimumDuration = 1;
 
 #include <algorithm>
 #include <chrono>
@@ -51,9 +54,12 @@ public:
 		mIn = (double *)malloc(sizeof(std::complex<double>) * size);
 		mOut = (double *)malloc(sizeof(std::complex<double>) * size);
 #endif
+	}
 
-		for (std::size_t i = 0; i < size; ++i) {
-			std::complex<double> p = std::exp(std::complex<double>(0.0, 2 * Pi * i * mBin / size + mPhase));
+	void Create()
+	{
+		for (std::size_t i = 0; i < mSize; ++i) {
+			std::complex<double> p = std::exp(std::complex<double>(0.0, 2 * Pi * i * mBin / mSize + mPhase));
 
 			mIn[2 * i + 0] = p.real();
 			mIn[2 * i + 1] = p.imag();
@@ -220,7 +226,10 @@ public:
 	{
 		DftiCreateDescriptor(&mDesc, DFTI_DOUBLE, DFTI_COMPLEX, 1, fftData.GetSize());
 		DftiSetValue(mDesc, DFTI_PLACEMENT, DFTI_NOT_INPLACE);
-		DftiSetValue(mDesc, DFTI_THREAD_LIMIT, cores);
+
+		if (cores > 0)
+			DftiSetValue(mDesc, DFTI_THREAD_LIMIT, cores);
+
 		DftiCommitDescriptor(mDesc);
 	}
 
@@ -237,9 +246,6 @@ public:
 
 #endif // USE_MKL
 
-static int const gMinimumCount = 4;
-static double const gMinimumDuration = 1;
-
 template<typename T>
 double Timer(T &runner)
 {
@@ -247,9 +253,8 @@ double Timer(T &runner)
 	runner.Run();
 	runner.GetFftData().Check();
 
-	double duration = 0;
 	size_t count = 0;
-
+	double duration = 0;
 	auto startTime = std::chrono::steady_clock::now();
 
 	do {
@@ -258,12 +263,51 @@ double Timer(T &runner)
 		duration = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count();
 		++count;
 
-	} while (count < gMinimumCount || duration < gMinimumDuration);
+	} while (duration < gMinimumDuration || count < gMinimumCount);
 
-	double size(runner.GetFftData().GetSize());
+	duration /= count;
 
-	return 1e9 * duration / count / (size * std::log(size));
+	double size = runner.GetFftData().GetSize();
+
+	return 1e9 * duration / (size * std::log(size));
 }
+
+/*
+
+template<typename T>
+double Timer(T &runner)
+{
+	runner.GetFftData().Clear();
+	runner.Run();
+	runner.GetFftData().Check();
+
+	double fastest = 1e9;
+
+	for (size_t trial = 0; trial < gMinimumCount; ++trial) {
+
+		size_t count = 0;
+		double duration = 0;
+		auto startTime = std::chrono::steady_clock::now();
+
+		do {
+
+			runner.Run();
+			duration = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count();
+			++count;
+
+		} while (duration < gMinimumDuration);// || count < gMinimumCount);
+
+		duration /= count;
+
+		fastest = std::min(duration, fastest);
+	}
+
+	double size = runner.GetFftData().GetSize();
+
+	return 1e9 * fastest / (size * std::log(size));
+}
+
+*/
 
 void PrintFactors(std::size_t size)
 {
@@ -300,15 +344,15 @@ void RunList(std::vector<size_t> const &sizes)
 #endif
 	std::cout << " Factors\n";
 
-	std::cout << "|-------------|------------|";
+	std::cout << "|------------:|:----------:|";
 #ifdef USE_FFTW
-	std::cout << "--------------|---------------|";
+	std::cout << ":------------:|:-------------:|";
 #endif
 #ifdef USE_MKL
-	std::cout << "------------|------------|";
+	std::cout << ":----------:|:----------:|";
 #endif
 
-	std::cout << "-----------\n";
+	std::cout << ":----------\n";
 
 	for (auto size : sizes) {
 
@@ -326,6 +370,8 @@ void RunList(std::vector<size_t> const &sizes)
 		MklRunner mklStRunner(data, 1);
 		MklRunner mklMtRunner(data, 2);
 #endif
+
+		data.Create();
 
 		std::cout << "| ";
 
